@@ -1,33 +1,45 @@
-import instaloader
 import tkinter as tk
 from tkinter import messagebox
+from downloader import InstagramDownloader
 from urllib.parse import urlparse
+import threading
 
-def extract_username(url_or_name):
-    if "instagram.com" in url_or_name:
-        return urlparse(url_or_name).path.strip("/").split("/")[0]
-    return url_or_name
 
-def download():
+def extract_username(text):
+    if "instagram.com" in text:
+        return urlparse(text).path.strip("/").split("/")[0]
+    return text
+
+
+def run_download():
     username = extract_username(entry.get())
 
-    try:
-        L = instaloader.Instaloader()
-        profile = instaloader.Profile.from_username(L.context, username)
-        L.download_profile(profile)
-        messagebox.showinfo("Done", f"Downloaded {username}")
-    except Exception as e:
-        messagebox.showerror("Error", str(e))
+    def task():
+        try:
+            status.set("Downloading...")
+            d = InstagramDownloader(max_workers=6)
+            d.download_profile(username)
+            status.set("Complete!")
+            messagebox.showinfo("Done", "Finished downloading.")
+        except Exception as e:
+            messagebox.showerror("Error", str(e))
+            status.set("Failed")
+
+    threading.Thread(target=task).start()
+
 
 root = tk.Tk()
 root.title("Instagram Fetcher")
-root.geometry("350x150")
+root.geometry("400x180")
 
-tk.Label(root, text="Profile URL or username").pack(pady=5)
+tk.Label(root, text="Instagram username or URL").pack(pady=8)
 
-entry = tk.Entry(root, width=40)
-entry.pack(pady=5)
+entry = tk.Entry(root, width=45)
+entry.pack()
 
-tk.Button(root, text="Download", command=download).pack(pady=10)
+tk.Button(root, text="Download", command=run_download).pack(pady=10)
+
+status = tk.StringVar(value="Idle")
+tk.Label(root, textvariable=status).pack()
 
 root.mainloop()
