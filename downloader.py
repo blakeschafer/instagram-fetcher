@@ -35,12 +35,15 @@ class InstagramDownloader:
         self.progress_callback(msg)
         logger.info(msg)
 
-    def _build_post_dir(self, username: str, shortcode: str) -> Path:
+    def _build_user_dirs(self, username: str) -> dict[str, Path]:
         safe_user = sanitize_filename(username)
-        safe_code = sanitize_filename(shortcode)
-        post_dir = DOWNLOAD_ROOT / safe_user / "posts" / safe_code
-        post_dir.mkdir(parents=True, exist_ok=True)
-        return post_dir
+        base = DOWNLOAD_ROOT / safe_user
+        dirs = {}
+        for name in ("images", "videos", "captions", "metadata", "transcripts"):
+            d = base / name
+            d.mkdir(parents=True, exist_ok=True)
+            dirs[name] = d
+        return dirs
 
     def _download_file(self, url: str, dest: Path) -> bool:
         try:
@@ -54,11 +57,11 @@ class InstagramDownloader:
             logger.error("Failed to download %s: %s", url, e)
             return False
 
-    def _save_caption(self, post_dir: Path, caption: Optional[str]):
+    def _save_caption(self, dirs: dict[str, Path], shortcode: str, caption: Optional[str]):
         if caption:
-            (post_dir / "caption.txt").write_text(caption, encoding="utf-8")
+            (dirs["captions"] / f"{shortcode}.txt").write_text(caption, encoding="utf-8")
 
-    def _save_metadata(self, post_dir: Path, post):
+    def _save_metadata(self, dirs: dict[str, Path], post):
         meta = {
             "shortcode": post.shortcode,
             "owner": post.owner_username,
@@ -70,34 +73,36 @@ class InstagramDownloader:
             "url": f"https://www.instagram.com/p/{post.shortcode}/",
             "fetched_at": datetime.now(timezone.utc).isoformat(),
         }
-        (post_dir / "metadata.json").write_text(
+        (dirs["metadata"] / f"{post.shortcode}.json").write_text(
             json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8"
         )
 
-    def _transcribe_video(self, video_path: Path, post_dir: Path):
+    def _transcribe_video(self, video_path: Path, dirs: dict[str, Path], shortcode: str):
         if not self.transcribe_fn:
             return
         try:
             text = self.transcribe_fn(str(video_path))
             if text:
-                (post_dir / "transcript.txt").write_text(text, encoding="utf-8")
+                (dirs["transcripts"] / f"{shortcode}.txt").write_text(text, encoding="utf-8")
                 self._emit(f"  Transcribed: {video_path.name}")
         except Exception as e:
             logger.error("Transcription failed for %s: %s", video_path, e)
 
-    def _download_media(self, post_dir: Path, url: str, name: str) -> Optional[Path]:
-        ext = "mp4" if "mp4" in url.split("?")[0] else "jpg"
-        dest = post_dir / f"{name}.{ext}"
+    def _download_media(self, dirs: dict[str, Path], shortcode: str, url: str, name: str) -> Optional[Path]:
+        is_video = "mp4" in url.split("?")[0]
+        ext = "mp4" if is_video else "jpg"
+        folder = dirs["videos"] if is_video else dirs["images"]
+        dest = folder / f"{shortcode}_{name}.{ext}"
         if self._download_file(url, dest):
             return dest
         return None
 
-    def _process_post(self, post) -> dict:
-        post_dir = self._build_post_dir(post.owner_username, post.shortcode)
-        self._emit(f"Processing: {post.shortcode} ({post.typename})")
+    def _process_post(self, post, dirs: dict[str, Path]) -> dict:
+        shortcode = post.shortcode
+        self._emit(f"Processing: {shortcode} ({post.typename})")
 
-        self._save_caption(post_dir, post.caption)
-        self._save_metadata(post_dir, post)
+        self._save_caption(dirs, shortcode, post.caption)
+        self._save_metadata(dirs, post)
 
         media_count = 0
         video_paths = []
@@ -105,29 +110,29 @@ class InstagramDownloader:
         if post.typename == "GraphSidecar":
             for i, node in enumerate(post.get_sidecar_nodes(), start=1):
                 if node.is_video:
-                    path = self._download_media(post_dir, node.video_url, f"media_{i}")
+                    path = self._download_media(dirs, shortcode, node.video_url, f"media_{i}")
                     if path:
                         media_count += 1
                         video_paths.append(path)
                 else:
-                    path = self._download_media(post_dir, node.display_url, f"media_{i}")
+                    path = self._download_media(dirs, shortcode, node.display_url, f"media_{i}")
                     if path:
                         media_count += 1
         elif post.typename == "GraphVideo":
-            path = self._download_media(post_dir, post.video_url, "media")
+            path = self._download_media(dirs, shortcode, post.video_url, "media")
             if path:
                 media_count += 1
                 video_paths.append(path)
         else:
-            path = self._download_media(post_dir, post.url, "media")
+            path = self._download_media(dirs, shortcode, post.url, "media")
             if path:
                 media_count += 1
 
         for vp in video_paths:
-            self._transcribe_video(vp, post_dir)
+            self._transcribe_video(vp, dirs, shortcode)
 
         return {
-            "shortcode": post.shortcode,
+            "shortcode": shortcode,
             "typename": post.typename,
             "media_count": media_count,
             "videos_transcribed": len(video_paths),
@@ -140,11 +145,13 @@ class InstagramDownloader:
         total = len(posts)
         self._emit(f"Found {total} posts for @{username}")
 
+        dirs = self._build_user_dirs(username)
+
         results = []
         completed = 0
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            futures = {executor.submit(self._process_post, p): p for p in posts}
+            futures = {executor.submit(self._process_post, p, dirs): p for p in posts}
             for future in as_completed(futures):
                 completed += 1
                 try:

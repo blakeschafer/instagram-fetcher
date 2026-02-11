@@ -140,8 +140,8 @@ def list_downloads():
     profiles = []
     for user_dir in sorted(root.iterdir()):
         if user_dir.is_dir():
-            posts_dir = user_dir / "posts"
-            post_count = len(list(posts_dir.iterdir())) if posts_dir.exists() else 0
+            images_dir = user_dir / "images"
+            post_count = len(list(images_dir.iterdir())) if images_dir.exists() else 0
             profiles.append({"username": user_dir.name, "posts": post_count})
     return jsonify(profiles)
 

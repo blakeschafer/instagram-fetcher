@@ -76,12 +76,12 @@ docker run -p 5000:5000 insta-fetcher
 ### Output Structure
 
 ```
-downloads/instagram/{username}/posts/{shortcode}/
-  media.jpg          # or media.mp4 for videos
-  media_1.jpg        # carousel items numbered
-  caption.txt        # post caption
-  metadata.json      # likes, comments, date, etc.
-  transcript.txt     # video transcription (if enabled)
+downloads/instagram/{username}/
+  images/{shortcode}_media.jpg       # or _media_1.jpg for carousels
+  videos/{shortcode}_media.mp4       # or _media_1.mp4 for carousels
+  captions/{shortcode}.txt           # post caption
+  metadata/{shortcode}.json          # likes, comments, date, etc.
+  transcripts/{shortcode}.txt        # video transcription (if enabled)
 ```
 
 ---
