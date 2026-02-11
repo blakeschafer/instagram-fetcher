@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+
+{% block content %}
+<form id="download-form">
+    <label for="username">Instagram username or URL</label>
+    <input type="text" id="username" name="username" placeholder="e.g. natgeo" required>
+    <button type="submit" id="submit-btn">Download</button>
+</form>
+
+<div id="error" class="error" hidden></div>
+
+<div id="progress-section" hidden>
+    <h2>Progress</h2>
+    <div id="progress-log"></div>
+</div>
+
+<div id="result-section" hidden>
+    <h2>Result</h2>
+    <pre id="result"></pre>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const form = document.getElementById('download-form');
+const btn = document.getElementById('submit-btn');
+const errorDiv = document.getElementById('error');
+const progressSection = document.getElementById('progress-section');
+const progressLog = document.getElementById('progress-log');
+const resultSection = document.getElementById('result-section');
+const resultPre = document.getElementById('result');
+
+form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const username = document.getElementById('username').value.trim();
+    if (!username) return;
+
+    errorDiv.hidden = true;
+    progressSection.hidden = false;
+    resultSection.hidden = true;
+    progressLog.innerHTML = '';
+    btn.disabled = true;
+    btn.textContent = 'Downloading...';
+
+    try {
+        const resp = await fetch('/download', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({username})
+        });
+        const data = await resp.json();
+
+        if (!resp.ok) {
+            errorDiv.textContent = data.error || 'Request failed';
+            errorDiv.hidden = false;
+            btn.disabled = false;
+            btn.textContent = 'Download';
+            return;
+        }
+
+        const jobId = data.job_id;
+        const evtSource = new EventSource(`/progress/${jobId}`);
+
+        evtSource.onmessage = (event) => {
+            const line = document.createElement('div');
+            line.textContent = event.data;
+            progressLog.appendChild(line);
+            progressLog.scrollTop = progressLog.scrollHeight;
+        };
+
+        evtSource.addEventListener('done', (event) => {
+            evtSource.close();
+            resultSection.hidden = false;
+            resultPre.textContent = event.data;
+            btn.disabled = false;
+            btn.textContent = 'Download';
+        });
+
+        evtSource.addEventListener('error_event', (event) => {
+            evtSource.close();
+            errorDiv.textContent = event.data;
+            errorDiv.hidden = false;
+            btn.disabled = false;
+            btn.textContent = 'Download';
+        });
+
+        evtSource.onerror = () => {
+            evtSource.close();
+            btn.disabled = false;
+            btn.textContent = 'Download';
+        };
+    } catch (err) {
+        errorDiv.textContent = 'Network error';
+        errorDiv.hidden = false;
+        btn.disabled = false;
+        btn.textContent = 'Download';
+    }
+});
+</script>
+{% endblock %}

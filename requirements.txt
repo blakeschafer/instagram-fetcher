@@ -5,3 +5,7 @@ instaloader==4.15
 requests==2.32.5
 urllib3==2.6.3
 tqdm
+Flask>=3.0
+Flask-Limiter>=3.5
+openai-whisper
+python-dotenv>=1.0
